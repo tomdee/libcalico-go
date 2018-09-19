@@ -91,6 +91,53 @@ var _ = testutils.E2eDatastoreDescribe("IPAM tests", testutils.DatastoreEtcdV3, 
 	}
 	ic := NewIPAMClient(bc, ipPools)
 
+	Context("With a clean datastore", func() {
+		bc.Clean()
+		deleteAllPools()
+		applyPool("10.0.0.0/16", true)
+		singlev4 := AutoAssignArgs{
+			Num4: 1,
+			Num6: 0,
+		}
+
+		blockv4 := AutoAssignArgs{
+			Num4: 64,
+			Num6: 0,
+		}
+		Measure("It should be able to allocate a single address quickly", func(b Benchmarker) {
+			runtime := b.Time("runtime", func() {
+				v4, _, outErr := ic.AutoAssign(context.Background(), singlev4)
+				Expect(outErr).NotTo(HaveOccurred())
+				Expect(len(v4)).To(Equal(1))
+			})
+
+			Ω(runtime.Seconds()).Should(BeNumerically("<", 0.1))
+		}, 1000)
+
+		Measure("It should be able to allocate a block of address quickly", func(b Benchmarker) {
+			runtime := b.Time("runtime", func() {
+				v4, _, outErr := ic.AutoAssign(context.Background(), blockv4)
+				Expect(outErr).NotTo(HaveOccurred())
+				Expect(len(v4)).To(Equal(64))
+			})
+
+			Ω(runtime.Seconds()).Should(BeNumerically("<", 1))
+		}, 100)
+
+		Measure("It should be able to allocate and release addresses quickly", func(b Benchmarker) {
+			runtime := b.Time("runtime", func() {
+				v4, _, outErr := ic.AutoAssign(context.Background(), singlev4)
+				Expect(outErr).NotTo(HaveOccurred())
+				Expect(len(v4)).To(Equal(1))
+				v4, outErr = ic.ReleaseIPs(context.Background(), v4)
+				Expect(outErr).NotTo(HaveOccurred())
+				Expect(len(v4)).To(Equal(0))
+			})
+
+			Ω(runtime.Seconds()).Should(BeNumerically("<", 1))
+		}, 1000)
+	})
+
 	// We're assigning one IP which should be from the only ipPool created at the time, second one
 	// should be from the same /26 block since they're both from the same host, then delete
 	// the ipPool and create a new ipPool, and AutoAssign 1 more IP for the same host - expect the
@@ -321,7 +368,7 @@ var _ = testutils.E2eDatastoreDescribe("IPAM tests", testutils.DatastoreEtcdV3, 
 				IPv4Pools: []cnet.IPNet{pool1, pool2},
 			}
 			v4, _, outErr := ic.AutoAssign(context.Background(), args)
-			log.Println("IPAM returned: %v", v4)
+			log.Printf("IPAM returned: %v\n", v4)
 
 			Expect(outErr).NotTo(HaveOccurred())
 			Expect(len(v4)).To(Equal(1))
@@ -336,7 +383,7 @@ var _ = testutils.E2eDatastoreDescribe("IPAM tests", testutils.DatastoreEtcdV3, 
 				IPv4Pools: []cnet.IPNet{pool1, pool2},
 			}
 			v4, _, outErr := ic.AutoAssign(context.Background(), args)
-			log.Println("v4: %d IPs", len(v4))
+			log.Printf("v4: %d IPs\n", len(v4))
 
 			Expect(outErr).NotTo(HaveOccurred())
 			Expect(len(v4)).To(Equal(300))
@@ -350,7 +397,7 @@ var _ = testutils.E2eDatastoreDescribe("IPAM tests", testutils.DatastoreEtcdV3, 
 				IPv4Pools: []cnet.IPNet{pool1, pool2},
 			}
 			v4, _, outErr := ic.AutoAssign(context.Background(), args)
-			log.Println("v4: %d IPs", len(v4))
+			log.Printf("v4: %d IPs\n", len(v4))
 
 			// Expect 211 entries since we have a total of 512, we requested 1 + 300 already.
 			Expect(outErr).NotTo(HaveOccurred())
@@ -365,7 +412,7 @@ var _ = testutils.E2eDatastoreDescribe("IPAM tests", testutils.DatastoreEtcdV3, 
 				IPv4Pools: []cnet.IPNet{pool1, pool5_doesnot_exist},
 			}
 			v4, _, err := ic.AutoAssign(context.Background(), args)
-			log.Println("v4: %d IPs", len(v4))
+			log.Printf("v4: %d IPs\n", len(v4))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).Should(Equal("the given pool (40.0.0.0/24) does not exist, or is not enabled"))
 			Expect(len(v4)).To(Equal(0))
